@@ -1,0 +1,96 @@
+import logging
+from apscheduler.schedulers.asyncio import AsyncIOScheduler
+from telegram import InlineKeyboardButton, InlineKeyboardMarkup
+
+from parsers.hh_parser import fetch_hh_jobs
+from parsers.habr_parser import fetch_habr_jobs
+from parsers.tg_parser import fetch_tg_jobs
+from ai_filter import score_job
+from database import save_job, update_job_score, get_subscribed_users
+from config import PARSE_INTERVAL, MIN_AI_SCORE
+
+logger = logging.getLogger(__name__)
+
+
+def _score_stars(score: int) -> str:
+    filled = score // 20
+    return '⭐' * filled + '☆' * (5 - filled)
+
+
+def _format_job_message(job: dict, score: int) -> str:
+    return (
+        f'🔔 <b>Новая вакансия</b>\n\n'
+        f'💼 <b>{job["title"]}</b>\n'
+        f'🏢 {job["company"]}\n'
+        f'💰 {job.get("salary") or "Не указана"}\n'
+        f'📡 {job["source"]}\n'
+        f'🤖 AI-оценка: <b>{score}/100</b> {_score_stars(score)}'
+    )
+
+
+async def _send_job(bot, user_id: int, job: dict, score: int):
+    keyboard = InlineKeyboardMarkup([[
+        InlineKeyboardButton('Откликнуться →', url=job['url']),
+        InlineKeyboardButton('❤ В избранное', callback_data=f'fav_{job["id"]}'),
+    ]])
+    try:
+        await bot.send_message(
+            chat_id=user_id,
+            text=_format_job_message(job, score),
+            reply_markup=keyboard,
+            parse_mode='HTML',
+        )
+    except Exception as e:
+        logger.warning(f'Не удалось отправить вакансию пользователю {user_id}: {e}')
+
+
+async def run_parsers(bot):
+    logger.info('=== Запуск парсеров ===')
+
+    all_jobs = []
+    for fetcher in [fetch_hh_jobs, fetch_habr_jobs, fetch_tg_jobs]:
+        try:
+            all_jobs.extend(fetcher())
+        except Exception as e:
+            logger.error(f'Ошибка в парсере {fetcher.__name__}: {e}')
+
+    logger.info(f'Итого найдено: {len(all_jobs)} вакансий')
+
+    users = get_subscribed_users()
+    if not users:
+        logger.info('Нет подписчиков для рассылки')
+        return
+
+    new_count = 0
+    for job in all_jobs:
+        job_id = save_job(job)
+        if job_id is None:
+            continue  # дубликат
+
+        new_count += 1
+        job['id'] = job_id
+
+        # AI-оценка и рассылка каждому пользователю
+        for user in users:
+            score = score_job(job, user)
+            update_job_score(job_id, score)
+
+            if score >= MIN_AI_SCORE:
+                await _send_job(bot, user['user_id'], job, score)
+
+    logger.info(f'Новых вакансий: {new_count}')
+
+
+def start_scheduler(bot):
+    scheduler = AsyncIOScheduler()
+    scheduler.add_job(
+        run_parsers,
+        trigger='interval',
+        seconds=PARSE_INTERVAL,
+        args=[bot],
+        id='parse_jobs',
+        replace_existing=True,
+    )
+    scheduler.start()
+    logger.info(f'Планировщик запущен (интервал: {PARSE_INTERVAL // 60} минут)')
+    return scheduler
