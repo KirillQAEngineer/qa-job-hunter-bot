@@ -1,6 +1,6 @@
 # QA Job Hunter Bot 🤖
 
-Telegram-бот для поиска вакансий QA Engineer. Агрегирует вакансии с hh.ru, Habr Career и Telegram-каналов, оценивает их через AI и присылает только подходящие.
+Telegram-бот для поиска вакансий QA Engineer. Агрегирует вакансии с hh.ru, Habr Career и Telegram-каналов и LinledIn, оценивает их через AI и присылает только подходящие.
 
 ## Быстрый старт
 
