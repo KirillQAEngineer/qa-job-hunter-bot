@@ -5,7 +5,7 @@ from telegram import InlineKeyboardButton, InlineKeyboardMarkup
 
 from parsers.hh_parser import fetch_hh_jobs
 from parsers.habr_parser import fetch_habr_jobs
-from parsers.tg_parser import fetch_tg_jobs
+from parsers.tg_parser import fetch_tg_jobs   # теперь async
 from ai_filter import score_job
 from database import save_job, update_job_score, get_subscribed_users
 from config import PARSE_INTERVAL, MIN_AI_SCORE
@@ -14,8 +14,7 @@ logger = logging.getLogger(__name__)
 
 
 def _score_stars(score: int) -> str:
-    filled = score // 20
-    return '⭐' * filled + '☆' * (5 - filled)
+    return '⭐' * (score // 20) + '☆' * (5 - score // 20)
 
 
 def _format_job_message(job: dict, score: int) -> str:
@@ -42,48 +41,55 @@ async def _send_job(bot, user_id: int, job: dict, score: int):
             parse_mode='HTML',
         )
     except Exception as e:
-        logger.warning(f'Не удалось отправить вакансию пользователю {user_id}: {e}')
+        logger.warning(f'Не удалось отправить вакансию {user_id}: {e}')
 
 
 async def run_parsers(bot):
     logger.info('=== Запуск парсеров ===')
 
     all_jobs = []
-    for fetcher in [fetch_hh_jobs, fetch_habr_jobs, fetch_tg_jobs]:
+
+    # Синхронные парсеры
+    for fetcher in [fetch_hh_jobs, fetch_habr_jobs]:
         try:
             result = fetcher()
-            logger.info(f'{fetcher.__name__}: получено {len(result)} вакансий')
+            logger.info(f'{fetcher.__name__}: {len(result)} вакансий')
             all_jobs.extend(result)
         except Exception as e:
-            logger.error(f'Ошибка в парсере {fetcher.__name__}: {e}', exc_info=True)
+            logger.error(f'Ошибка {fetcher.__name__}: {e}', exc_info=True)
+
+    # Async парсер Telegram
+    try:
+        tg_jobs = await fetch_tg_jobs()
+        logger.info(f'fetch_tg_jobs: {len(tg_jobs)} вакансий')
+        all_jobs.extend(tg_jobs)
+    except Exception as e:
+        logger.error(f'Ошибка fetch_tg_jobs: {e}', exc_info=True)
 
     logger.info(f'Итого найдено: {len(all_jobs)} вакансий')
 
     users = get_subscribed_users()
     if not users:
-        logger.info('Нет подписчиков для рассылки')
+        logger.info('Нет подписчиков')
         return
 
     new_count = 0
     for job in all_jobs:
         job_id = save_job(job)
         if job_id is None:
-            continue  # дубликат
-
+            continue
         new_count += 1
         job['id'] = job_id
-
         for user in users:
             score = score_job(job, user)
             update_job_score(job_id, score)
             if score >= MIN_AI_SCORE:
                 await _send_job(bot, user['user_id'], job, score)
 
-    logger.info(f'Новых вакансий добавлено: {new_count}')
+    logger.info(f'Новых вакансий: {new_count}')
 
 
 async def run_parsers_with_status(bot, notify_user_id: int = None):
-    """Запуск парсеров с уведомлением пользователя о начале и конце."""
     if notify_user_id:
         try:
             await bot.send_message(
@@ -109,7 +115,7 @@ async def run_parsers_with_status(bot, notify_user_id: int = None):
 def start_scheduler(bot):
     scheduler = AsyncIOScheduler()
 
-    # Первый запуск — через 10 секунд после старта (не ждём 30 минут!)
+    # Первый запуск через 10 секунд
     scheduler.add_job(
         run_parsers,
         trigger='date',
@@ -118,7 +124,7 @@ def start_scheduler(bot):
         id='parse_jobs_first',
     )
 
-    # Повторяющийся запуск каждые 30 минут
+    # Затем каждые 30 минут
     scheduler.add_job(
         run_parsers,
         trigger='interval',
@@ -129,5 +135,5 @@ def start_scheduler(bot):
     )
 
     scheduler.start()
-    logger.info(f'Планировщик запущен. Первый парсинг через 10 секунд, затем каждые {PARSE_INTERVAL // 60} минут.')
+    logger.info(f'Планировщик запущен. Первый парсинг через 10 сек, затем каждые {PARSE_INTERVAL // 60} мин.')
     return scheduler
