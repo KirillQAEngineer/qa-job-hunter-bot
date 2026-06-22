@@ -14,6 +14,13 @@ TG_CHANNELS = [
     'qa_jobs_ru',
     'tester_jobs',
     'qa_automation_jobs',
+    'testerrjob',
+    'zarubezhom_jobs',
+    'qajoboffer',
+    'evacuatejobs',
+    'ITposting',
+    'cyithr',
+    'qa_jobs',
 ]
 
 # Интервал парсинга — 30 минут
