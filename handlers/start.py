@@ -6,6 +6,7 @@ MAIN_MENU = ReplyKeyboardMarkup(
     [
         [KeyboardButton('🔍 Вакансии'), KeyboardButton('❤ Избранное')],
         [KeyboardButton('👤 Мой профиль'), KeyboardButton('⚙ Подписка')],
+        [KeyboardButton('🔄 Запустить парсинг')],
     ],
     resize_keyboard=True,
 )
@@ -22,7 +23,8 @@ async def cmd_start(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
         '• Оцениваю каждую вакансию AI и присылаю только подходящие\n'
         '• Позволяю откликнуться прямо из бота\n'
         '• Сохраняю понравившиеся вакансии в избранное\n\n'
-        '⚙ Настрой профиль командой /profile, чтобы AI подбирал точнее.\n\n'
+        '⚙ Настрой профиль командой /profile, чтобы AI подбирал точнее.\n'
+        '🔄 Кнопка <b>«Запустить парсинг»</b> — немедленно ищет новые вакансии.\n\n'
         'Используй меню ниже 👇',
         parse_mode='HTML',
         reply_markup=MAIN_MENU,
@@ -33,7 +35,8 @@ async def cmd_help(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
     await update.message.reply_text(
         '📖 <b>Команды бота:</b>\n\n'
         '/start — главное меню\n'
-        '/jobs — последние вакансии\n'
+        '/jobs — последние вакансии из базы\n'
+        '/parse — немедленно запустить парсинг\n'
         '/profile — настроить профиль\n'
         '/favorites — избранные вакансии\n'
         '/subscribe — включить уведомления\n'

@@ -8,17 +8,18 @@ HEADERS = {'User-Agent': 'QAJobBot/1.0 (job search bot)'}
 
 def fetch_hh_jobs() -> list[dict]:
     params = {
-        'text': 'QA Engineer OR тестировщик OR автоматизатор',
+        'text': 'QA Engineer OR тестировщик OR QA automation OR автоматизатор тестирования',
         'schedule': 'remote',
         'per_page': 50,
         'order_by': 'publication_time',
-        'search_field': 'name',
-        'only_with_salary': 'false',
+        # Убрали search_field — ищем по всему тексту вакансии, не только по названию
     }
     try:
         resp = requests.get(HH_API, params=params, headers=HEADERS, timeout=15)
         resp.raise_for_status()
-        items = resp.json().get('items', [])
+        data = resp.json()
+        items = data.get('items', [])
+        logger.info(f'hh.ru: всего найдено {data.get("found", "?")} вакансий, получено {len(items)}')
     except Exception as e:
         logger.error(f'hh.ru: ошибка запроса: {e}')
         return []
@@ -34,7 +35,6 @@ def fetch_hh_jobs() -> list[dict]:
             'source':  'hh.ru',
             'remote':  1,
         })
-    logger.info(f'hh.ru: найдено {len(jobs)} вакансий')
     return jobs
 
 

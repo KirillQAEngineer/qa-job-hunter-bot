@@ -1,4 +1,5 @@
 import logging
+from datetime import datetime, timedelta
 from apscheduler.schedulers.asyncio import AsyncIOScheduler
 from telegram import InlineKeyboardButton, InlineKeyboardMarkup
 
@@ -50,9 +51,11 @@ async def run_parsers(bot):
     all_jobs = []
     for fetcher in [fetch_hh_jobs, fetch_habr_jobs, fetch_tg_jobs]:
         try:
-            all_jobs.extend(fetcher())
+            result = fetcher()
+            logger.info(f'{fetcher.__name__}: получено {len(result)} вакансий')
+            all_jobs.extend(result)
         except Exception as e:
-            logger.error(f'Ошибка в парсере {fetcher.__name__}: {e}')
+            logger.error(f'Ошибка в парсере {fetcher.__name__}: {e}', exc_info=True)
 
     logger.info(f'Итого найдено: {len(all_jobs)} вакансий')
 
@@ -70,27 +73,61 @@ async def run_parsers(bot):
         new_count += 1
         job['id'] = job_id
 
-        # AI-оценка и рассылка каждому пользователю
         for user in users:
             score = score_job(job, user)
             update_job_score(job_id, score)
-
             if score >= MIN_AI_SCORE:
                 await _send_job(bot, user['user_id'], job, score)
 
-    logger.info(f'Новых вакансий: {new_count}')
+    logger.info(f'Новых вакансий добавлено: {new_count}')
+
+
+async def run_parsers_with_status(bot, notify_user_id: int = None):
+    """Запуск парсеров с уведомлением пользователя о начале и конце."""
+    if notify_user_id:
+        try:
+            await bot.send_message(
+                chat_id=notify_user_id,
+                text='🔄 Запускаю парсеры hh.ru, Habr Career и Telegram-каналы...\nЭто займёт ~30 секунд.'
+            )
+        except Exception:
+            pass
+
+    await run_parsers(bot)
+
+    if notify_user_id:
+        try:
+            await bot.send_message(
+                chat_id=notify_user_id,
+                text='✅ Парсинг завершён! Нажми <b>🔍 Вакансии</b> чтобы посмотреть результаты.',
+                parse_mode='HTML',
+            )
+        except Exception:
+            pass
 
 
 def start_scheduler(bot):
     scheduler = AsyncIOScheduler()
+
+    # Первый запуск — через 10 секунд после старта (не ждём 30 минут!)
+    scheduler.add_job(
+        run_parsers,
+        trigger='date',
+        run_date=datetime.now() + timedelta(seconds=10),
+        args=[bot],
+        id='parse_jobs_first',
+    )
+
+    # Повторяющийся запуск каждые 30 минут
     scheduler.add_job(
         run_parsers,
         trigger='interval',
         seconds=PARSE_INTERVAL,
         args=[bot],
-        id='parse_jobs',
+        id='parse_jobs_interval',
         replace_existing=True,
     )
+
     scheduler.start()
-    logger.info(f'Планировщик запущен (интервал: {PARSE_INTERVAL // 60} минут)')
+    logger.info(f'Планировщик запущен. Первый парсинг через 10 секунд, затем каждые {PARSE_INTERVAL // 60} минут.')
     return scheduler
