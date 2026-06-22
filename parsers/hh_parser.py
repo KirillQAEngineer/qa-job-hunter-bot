@@ -1,36 +1,45 @@
 import logging
+import random
 import requests
 
 logger = logging.getLogger(__name__)
 HH_API = 'https://api.hh.ru/vacancies'
-HEADERS = {'User-Agent': 'QAJobBot/1.0 (job search bot)'}
+
+USER_AGENTS = [
+    'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36',
+    'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/123.0.0.0 Safari/537.36',
+    'Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36',
+]
 
 
 def fetch_hh_jobs() -> list[dict]:
+    headers = {
+        'User-Agent': random.choice(USER_AGENTS),
+        'Accept': 'application/json',
+        'HH-User-Agent': 'QAJobHunterBot/1.0 (qa.job.hunter.bot@gmail.com)',
+    }
     params = {
-        'text': 'QA Engineer OR тестировщик OR QA automation OR автоматизатор тестирования',
+        'text': 'QA Engineer OR тестировщик OR QA automation',
         'schedule': 'remote',
         'per_page': 50,
         'order_by': 'publication_time',
-        # Убрали search_field — ищем по всему тексту вакансии, не только по названию
     }
     try:
-        resp = requests.get(HH_API, params=params, headers=HEADERS, timeout=15)
+        resp = requests.get(HH_API, params=params, headers=headers, timeout=15)
         resp.raise_for_status()
         data = resp.json()
         items = data.get('items', [])
-        logger.info(f'hh.ru: всего найдено {data.get("found", "?")} вакансий, получено {len(items)}')
+        logger.info(f'hh.ru: найдено {data.get("found", "?")} вакансий, получено {len(items)}')
     except Exception as e:
-        logger.error(f'hh.ru: ошибка запроса: {e}')
+        logger.error(f'hh.ru: ошибка: {e}')
         return []
 
     jobs = []
     for item in items:
-        salary = _parse_salary(item.get('salary'))
         jobs.append({
             'title':   item['name'],
             'company': item.get('employer', {}).get('name', ''),
-            'salary':  salary,
+            'salary':  _parse_salary(item.get('salary')),
             'url':     item['alternate_url'],
             'source':  'hh.ru',
             'remote':  1,
@@ -38,15 +47,10 @@ def fetch_hh_jobs() -> list[dict]:
     return jobs
 
 
-def _parse_salary(salary_obj) -> str:
-    if not salary_obj:
+def _parse_salary(s) -> str:
+    if not s:
         return ''
-    from_val = salary_obj.get('from')
-    to_val = salary_obj.get('to')
-    currency = salary_obj.get('currency', '')
     parts = []
-    if from_val:
-        parts.append(f'от {int(from_val):,}')
-    if to_val:
-        parts.append(f'до {int(to_val):,}')
-    return ' '.join(parts) + f' {currency}' if parts else ''
+    if s.get('from'): parts.append(f'от {int(s["from"]):,}')
+    if s.get('to'):   parts.append(f'до {int(s["to"]):,}')
+    return (' '.join(parts) + f' {s.get("currency", "")}').strip() if parts else ''

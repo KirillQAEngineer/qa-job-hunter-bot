@@ -1,35 +1,38 @@
 import logging
 import requests
+import xml.etree.ElementTree as ET
 
 logger = logging.getLogger(__name__)
-HABR_API = 'https://career.habr.com/api/v1/vacancies'
 
 
 def fetch_habr_jobs() -> list[dict]:
-    params = {
-        'q': 'QA Engineer',
-        'remote': 'true',
-        'per_page': 30,
-        'order': 'date',
+    """Используем RSS — публичный, не требует авторизации."""
+    rss_url = 'https://career.habr.com/vacancies/rss?q=QA+Engineer&remote=true&sort=date'
+    headers = {
+        'User-Agent': 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36',
+        'Accept': 'application/rss+xml, application/xml, text/xml',
     }
     try:
-        resp = requests.get(HABR_API, params=params, timeout=15)
+        resp = requests.get(rss_url, headers=headers, timeout=15)
         resp.raise_for_status()
-        items = resp.json().get('list', [])
+        root = ET.fromstring(resp.content)
+        items = root.findall('.//item')
+        logger.info(f'Habr Career RSS: получено {len(items)} вакансий')
     except Exception as e:
-        logger.error(f'Habr Career: ошибка запроса: {e}')
+        logger.error(f'Habr Career: ошибка: {e}')
         return []
 
     jobs = []
     for item in items:
-        job_id = item.get('id', '')
-        jobs.append({
-            'title':   item.get('title', ''),
-            'company': item.get('company', {}).get('title', ''),
-            'salary':  item.get('salaryQualifier', ''),
-            'url':     f'https://career.habr.com/vacancies/{job_id}',
-            'source':  'Habr Career',
-            'remote':  1,
-        })
-    logger.info(f'Habr Career: найдено {len(jobs)} вакансий')
+        title = item.findtext('title', '').strip()
+        url = item.findtext('link', '').strip()
+        if title and url:
+            jobs.append({
+                'title':   title,
+                'company': 'Habr Career',
+                'salary':  '',
+                'url':     url,
+                'source':  'Habr Career',
+                'remote':  1,
+            })
     return jobs
